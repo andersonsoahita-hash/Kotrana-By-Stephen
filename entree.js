@@ -4,7 +4,10 @@
    + version.json à côté : {"v":"2026.11.04-2010"}. Le bouton « Mettre à jour » n'apparaît que si le site en ligne a une version plus récente. */
 (function(){
   var C=window.ENTREE||{};if(!C.name)return;
-  var fromUpdate=/[?&]u=/.test(location.search),done=false,raf=0,timers=[];
+  var fromUpdate=/[?&]u=/.test(location.search),done=true,raf=0,timers=[],AWAY=(C.away||5)*60000,LK='en_last',hiddenAt=0;
+  function seen(){try{localStorage.setItem(LK,String(Date.now()))}catch(e){}}
+  function last(){try{return +localStorage.getItem(LK)||0}catch(e){return 0}}
+  function busy(){try{return !!(C.busy&&C.busy())}catch(e){return false}}
   var RM=window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches;
   var css='#en{position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;align-items:center;padding:max(22px,env(safe-area-inset-top)) max(24px,env(safe-area-inset-right)) max(26px,env(safe-area-inset-bottom)) max(24px,env(safe-area-inset-left));background:#060E1B;color:#EAF4FF;font-family:"DM Sans",system-ui,-apple-system,sans-serif;overflow:hidden;text-align:center;touch-action:none;transition:opacity .6s ease,transform .6s cubic-bezier(.6,0,.2,1),filter .6s ease}'+
   '#en.out{opacity:0;transform:scale(1.18);filter:blur(10px);pointer-events:none}'+
@@ -51,29 +54,40 @@
     function pt(e){var t=e.touches?e.touches[0]:e,r=root.getBoundingClientRect();px=t.clientX-r.left;py=t.clientY-r.top}
     root.addEventListener('pointermove',pt);root.addEventListener('touchmove',pt,{passive:true});root.addEventListener('touchstart',pt,{passive:true});
     root.addEventListener('pointerleave',function(){px=py=-9999});root.addEventListener('touchend',function(){px=py=-9999});
-    window.addEventListener('resize',size);document.addEventListener('visibilitychange',function(){if(!document.hidden&&!raf&&!done&&!RM)raf=requestAnimationFrame(frame)});
-    size();frame()}
+    function vis(){if(!document.hidden&&!raf&&!done&&!RM)raf=requestAnimationFrame(frame)}
+    window.addEventListener('resize',size);document.addEventListener('visibilitychange',vis);
+    size();frame();
+    return function(){window.removeEventListener('resize',size);document.removeEventListener('visibilitychange',vis)}}
   function check(el){
     fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(j){
       if(done||!j||!j.v||j.v===C.v)return;
       el.classList.add('nw');el._nv=j.v;el.querySelector('.nv span').textContent='Nouvelle version disponible'}).catch(function(){})}
-  function add(){
-    if(fromUpdate||sessionStorage.getItem('en_skip')){history.replaceState(null,'',location.pathname+location.hash);if(fromUpdate)setTimeout(function(){toast('Mis à jour · version '+(C.v||''))},600);return}
-    var st=document.createElement('style');st.textContent=css;document.head.appendChild(st);
+  function add(force){
+    if(document.getElementById('en'))return;
+    if(!force&&(fromUpdate||busy()||(sessionStorage.getItem('en_skip')&&Date.now()-last()<AWAY))){history.replaceState(null,'',location.pathname+location.hash);if(fromUpdate)setTimeout(function(){toast('Mis à jour · version '+(C.v||''))},600);seen();return}
+    done=false;timers=[];raf=0;
+    if(!document.getElementById('en-css')){var st0=document.createElement('style');st0.id='en-css';st0.textContent=css;document.head.appendChild(st0)}
     var el=document.createElement('div');el.id='en';el.setAttribute('role','dialog');el.setAttribute('aria-label','Accueil '+C.name);
     var letters=String(C.name).split('').map(function(ch,i){return '<span style="animation-delay:'+(0.5+i*0.08).toFixed(2)+'s,'+(1.8+i*0.14).toFixed(2)+'s">'+ch+'</span>'}).join('');
     var lines=(C.lines&&C.lines.length?C.lines:(C.tag?[C.tag]:[])).map(function(t,i){return '<b'+(i===0?' class="on"':'')+'>'+t+'</b>'}).join('');
     el.innerHTML='<div class="aur"></div><canvas></canvas><div class="hi">'+hello()+'</div><div class="mid"><div class="lg"><i class="sp"></i><i class="rg"></i><i class="rg"></i><i class="rg"></i>'+(C.logo?'<img src="'+C.logo+'" alt="">':'')+'</div><h1 aria-label="'+C.name+'">'+letters+'</h1>'+(C.sub?'<div class="sub">'+C.sub+'</div>':'')+'<div class="ln">'+lines+'</div></div>'+
       '<div class="bt"><div class="nv"><i></i><span></span></div><button class="go" type="button">Entrer</button><button class="up" type="button">Mettre à jour</button><div class="st" aria-live="polite"></div><div class="vv">Version '+(C.v||'–')+'</div></div>';
     document.body.appendChild(el);
-    stars(el.querySelector('canvas'),el);
+    var stopStars=stars(el.querySelector('canvas'),el);
     var bs=el.querySelectorAll('.ln b');if(bs.length>1&&!RM){var k=0;timers.push(setInterval(function(){bs[k].classList.remove('on');k=(k+1)%bs.length;bs[k].classList.add('on')},2600))}
     var go=el.querySelector('.go'),up=el.querySelector('.up'),msg=el.querySelector('.st');
-    go.onclick=function(){if(done)return;done=true;timers.forEach(clearInterval);if(raf)cancelAnimationFrame(raf);try{sessionStorage.setItem('en_skip','1')}catch(e){}el.classList.add('out');setTimeout(function(){el.remove()},640);window.dispatchEvent(new Event('entree:enter'))};
+    go.onclick=function(){if(done)return;done=true;timers.forEach(clearInterval);if(raf)cancelAnimationFrame(raf);raf=0;if(stopStars)stopStars();seen();try{sessionStorage.setItem('en_skip','1')}catch(e){}el.classList.add('out');setTimeout(function(){el.remove()},640);window.dispatchEvent(new Event('entree:enter'))};
     up.onclick=function(){up.disabled=true;up.textContent='Mise à jour…';msg.textContent='';
       var v=el._nv||String(Date.now());setTimeout(function(){location.replace(location.pathname+'?u='+encodeURIComponent(v))},350)};
     setTimeout(function(){check(el)},300);
   }
-  if(document.body)add();else document.addEventListener('DOMContentLoaded',add);
+  function boot(){add(false);
+    setInterval(function(){if(!document.hidden&&!document.getElementById('en'))seen()},15000);
+    ['pointerdown','touchstart','keydown'].forEach(function(t){document.addEventListener(t,function(){if(!document.getElementById('en'))seen()},{passive:true,capture:true})});
+    document.addEventListener('visibilitychange',function(){
+      if(document.hidden){hiddenAt=Date.now();if(!document.getElementById('en'))seen();return}
+      if(hiddenAt&&Date.now()-hiddenAt>=AWAY&&!busy()&&!document.getElementById('en'))add(true);hiddenAt=0});
+    window.addEventListener('pageshow',function(e){if(e.persisted&&Date.now()-last()>=AWAY&&!busy())add(true)})}
+  if(document.body)boot();else document.addEventListener('DOMContentLoaded',boot);
   function toast(t){var d=document.createElement('div');d.textContent=t;d.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:calc(110px + env(safe-area-inset-bottom,0px));z-index:2147483001;background:#EAF4FF;color:#08111F;padding:11px 18px;border-radius:14px;font:600 14px system-ui,sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.35);max-width:90%';document.body.appendChild(d);setTimeout(function(){d.remove()},2800)}
 })();
